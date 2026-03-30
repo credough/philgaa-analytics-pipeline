@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-st.header("Top Programs by Budget")
-st.caption("Highest-appropriated programs and projects — FY2021")
+st.markdown("## Top Programs by Budget")
+st.markdown('<p class="caption-text">Highest-appropriated programs and projects — FY2021 General Appropriations Act</p>', unsafe_allow_html=True)
+st.markdown("---")
 
 top_n = st.slider("Number of programs to display", min_value=5,
                    max_value=25, value=10, step=5)

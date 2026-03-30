@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-st.header("Budget Overview")
-st.caption("FY2021 headline figures and budget composition")
+st.markdown("## Budget Overview")
+st.markdown('<p class="caption-text">FY2021 headline figures and budget composition — General Appropriations Act</p>', unsafe_allow_html=True)
+st.markdown("---")
 
 kpis = budget_summary_kpis(fiscal_year=2021)
 

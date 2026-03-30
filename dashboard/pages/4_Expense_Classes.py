@@ -7,8 +7,9 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-st.header("Expense Class Analysis")
-st.caption("Budget breakdown by Personnel Services, MOOE, Capital Outlay, and Financial Expenses — FY2021")
+st.markdown("## Expense Class Analysis")
+st.markdown('<p class="caption-text">Breakdown by Personnel Services, MOOE, Capital Outlay, and Financial Expenses — FY2021</p>', unsafe_allow_html=True)
+st.markdown("---")
 
 ec_df = budget_by_expense_class(fiscal_year=2021)
 
