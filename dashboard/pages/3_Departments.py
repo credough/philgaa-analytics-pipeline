@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-st.header("Department Budget Distribution")
-st.caption("Budget aggregated at the department level — FY2021")
+st.markdown("## Department Budget Distribution")
+st.markdown('<p class="caption-text">Budget aggregated at the department level — FY2021 General Appropriations Act</p>', unsafe_allow_html=True)
+st.markdown("---")
 
 df = budget_by_department(fiscal_year=2021, top_n=15)
 
