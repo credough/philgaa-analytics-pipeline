@@ -161,9 +161,9 @@ class FactBudgetAllocation(Base):
 
     # The four core budget execution measures
     authorized_appropriation = Column(Numeric(20, 2), default=0)
-    allotment = Column(Numeric(20, 2), default=0)
-    obligations = Column(Numeric(20, 2), default=0)
-    disbursements = Column(Numeric(20, 2), default=0)
+    allotment = Column(Numeric(20, 2), nullable=False, server_default="0")
+    obligations = Column(Numeric(20, 2), nullable=False, server_default="0")
+    disbursements = Column(Numeric(20, 2), nullable=False, server_default="0")
 
     # Derived measures — computed during transformation, stored for query speed
     utilization_rate = Column(Numeric(8, 4))    # obligations / appropriation
