@@ -9,7 +9,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Complete-2ea88a?style=flat-square)
 
-> An end-to-end data engineering and analytics pipeline built on real Philippine government budget data from the FY2021 General Appropriations Act (GAA), published by the Department of Budget and Management (DBM). The pipeline ingests 498,342 raw budget line items, models a Kimball-style dimensional warehouse in PostgreSQL, and serves budget intelligence through an interactive multi-page Streamlit dashboard.
+> An end-to-end data pipeline built on real Philippine government budget data from the FY2021 General Appropriations Act (GAA), published by the Department of Budget and Management (DBM). The pipeline ingests 498,342 raw budget line items, models a Kimball-style dimensional warehouse in PostgreSQL, and serves budget intelligence through an interactive multi-page Streamlit dashboard.
 
 ---
 
