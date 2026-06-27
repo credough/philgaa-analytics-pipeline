@@ -597,3 +597,483 @@ MIT License. See `LICENSE` for details.
 *Data source: Department of Budget and Management, Republic of the Philippines.
 Republic Act No. 11518 — General Appropriations Act FY2021, Volume I-A.
 All financial figures in Philippine Peso (PHP).*
+
+---
+
+## Introduction
+
+The Philippine government publishes its annual budget through the
+General Appropriations Act (GAA) — a legislative document that
+authorizes every peso the national government is authorized to
+spend across all departments, agencies, programs, and projects
+for a given fiscal year. While the data is technically public,
+it exists in a form that is difficult for most people to read,
+query, or analyze: a multi-hundred-thousand-row Excel file with
+encoded column names, numeric classification codes, and amounts
+denominated in thousands of pesos.
+
+This project — PhilGAA Analytics Pipeline — was built to bridge
+that gap. Starting from the raw FY2021 GAA Excel file published
+by the Department of Budget and Management (DBM), the pipeline
+ingests, cleans, models, and visualizes the full national budget
+in a form that is queryable, explorable, and analytically
+meaningful.
+
+The FY2021 fiscal year was chosen as the initial scope because
+it represents a critical period in Philippine fiscal history —
+the first full budget cycle during the COVID-19 pandemic response,
+characterized by significant realignments toward health, social
+protection, and economic recovery programs alongside continued
+infrastructure spending commitments.
+
+---
+
+## Problem Statement
+
+The Philippine government's budget data is publicly available
+but not publicly accessible in a practical sense. The raw GAA
+file presents several barriers to meaningful analysis:
+
+- Budget line items are granular to the sub-object level,
+  producing hundreds of thousands of rows that cannot be
+  meaningfully interpreted without aggregation and modeling
+- Financial amounts are denominated in thousands of pesos
+  without consistent labeling, creating a risk of 1,000x
+  misinterpretation for anyone working with the raw file
+- Expense classifications are stored as numeric codes with
+  no lookup reference in the file itself
+- There is no structured, queryable version of the data
+  available through official government channels — only
+  the raw Excel download
+
+As a result, questions that should be straightforward —
+which agencies received the most funding, how the budget
+is distributed across expense types, which programs
+command the largest appropriations — require significant
+data engineering work before they can be answered.
+
+This project addresses that problem by building the
+infrastructure needed to make the GAA data analytically
+accessible.
+
+---
+
+## Objectives
+
+The project was guided by the following analytical objectives:
+
+**Primary objectives:**
+
+1. Ingest and structure the full FY2021 GAA dataset into a
+   queryable relational database without loss of source fidelity
+2. Identify the distribution of the national budget across
+   government agencies, departments, and expense classifications
+3. Surface the top-funded programs and projects in the FY2021
+   appropriations
+4. Deliver findings through an interactive dashboard accessible
+   to non-technical audiences
+
+**Secondary objectives:**
+
+5. Document real data quality issues encountered in the source
+   file and the resolutions applied — contributing to public
+   knowledge about working with Philippine government open data
+6. Design a schema extensible enough to accommodate budget
+   execution data (obligations and disbursements) when it
+   becomes available, enabling future utilization rate analysis
+
+---
+
+## Dataset Description
+
+| Attribute | Detail |
+|---|---|
+| Source | Department of Budget and Management (DBM) |
+| Document | Republic Act No. 11518 — General Appropriations Act FY2021, Volume I-A |
+| File format | Microsoft Excel (.xlsx) |
+| Sheet | 2021 GAA (single sheet) |
+| Row count | 498,342 (excluding header rows) |
+| Column count | 16 |
+| Amount denomination | Thousands of Philippine Peso (PHP) |
+| Fiscal year covered | January 1 – December 31, 2021 |
+
+**Key columns in the source file:**
+
+| Source Column | Description | Maps To |
+|---|---|---|
+| DEPARTMENT | Department numeric code | department_code |
+| UACS_DPT_DSC | Department name | department_name |
+| AGENCY | Agency numeric code | agency_code |
+| UACS_AGY_DSC | Agency name | agency_name |
+| PREXC_FPAP_ID | Program/project identifier | program_name |
+| DSC | Program/project description | project_name |
+| UACS_EXP_CD | Expense class code (numeric) | expense_class |
+| UACS_SOBJ_CD | Sub-object code | object_code |
+| UACS_SOBJ_DSC | Sub-object description | object_name |
+| AMT | Authorized appropriation in thousands PHP | authorized_appropriation |
+
+**Columns intentionally excluded from the pipeline:**
+
+| Column | Reason for Exclusion |
+|---|---|
+| OPERUNIT | Operating unit — too granular for department/agency analysis |
+| UACS_OPER_DSC | Operating unit description — same reason |
+| UACS_REG_ID | Regional identifier — out of scope for this iteration |
+| FUNDCD | Fund code — out of scope for this iteration |
+| UACS_FUNDSUBCAT_DSC | Fund subcategory — out of scope for this iteration |
+
+---
+
+## Methodology
+
+The project followed a five-stage data pipeline methodology
+modeled after standard data warehouse engineering practice:
+
+**Stage 1 — Extraction and Staging**
+The raw GAA Excel file was read using pandas with `openpyxl`
+as the parsing engine. The file header is on row 2 (row 1
+contains the unit annotation "In Thousand Pesos"), requiring
+`header=1` in the read call. All columns were initially read
+as strings to prevent pandas from applying automatic type
+inference on financial and code columns. Selected columns
+were mapped to staging table names and inserted into
+`stg_budget_allocations` in PostgreSQL via SQLAlchemy using
+chunked bulk inserts of 10,000 rows per batch.
+
+**Stage 2 — Cleaning and Transformation**
+Staged rows were processed through a cleaning pipeline that
+applied type coercion, amount conversion, string standardization,
+and null flagging. The `is_processed` flag on the staging table
+was used as a pipeline state marker to enable re-runnable
+transformations without row duplication.
+
+**Stage 3 — Dimensional Modeling**
+Unique agency, expense class, and object code combinations
+were extracted from the cleaned data and loaded into dimension
+tables with auto-generated integer surrogate keys. Foreign key
+references were resolved before fact table insertion using
+in-memory Python dictionaries built from the dimension table
+records.
+
+**Stage 4 — Analytics**
+Five parameterized query functions were written against the
+dimensional model, returning pandas DataFrames for consumption
+by the dashboard layer. All functions accept `fiscal_year` as
+a parameter for forward compatibility with future year data.
+
+**Stage 5 — Visualization**
+An interactive multi-page Streamlit dashboard was built on
+top of the analytics module. Plotly was used for all chart
+rendering. The dashboard follows a dark theme with a
+Blue-Teal-Amber color palette where colors encode meaning —
+blue for Personnel Services, teal for MOOE, amber for Capital
+Outlay, and red for Financial Expenses.
+
+---
+
+## Data Cleaning Process
+
+The following cleaning operations were applied in
+`pipeline/transform.py` after loading staged rows:
+
+**1. Type coercion**
+The `authorized_appropriation` column was read as a string
+at ingestion and converted to numeric during transformation:
+
+```python
+df["authorized_appropriation"] = pd.to_numeric(
+    df["authorized_appropriation"], errors="coerce"
+)
+```
+
+The `errors="coerce"` parameter converts unparseable values
+to NaN rather than raising an exception, preserving all rows
+for downstream null handling.
+
+**2. Amount conversion**
+All amounts in the source file are denominated in thousands
+of pesos. Conversion to actual peso values was applied:
+
+```python
+df["authorized_appropriation"] = df["authorized_appropriation"] * 1000
+```
+
+This conversion is applied in the transformation layer rather
+than ingestion, preserving the source values in the staging
+table as a faithful mirror of the original file.
+
+**3. Null amount handling**
+3,206 rows (0.64% of total) had no AMT value. These correspond
+to program description rows and subtotal markers in the GAA
+structure. Rather than dropping them, a flag was added and
+amounts were set to zero:
+
+```python
+df["has_null_amount"] = df["authorized_appropriation"].isna()
+df["authorized_appropriation"] = df["authorized_appropriation"].fillna(0)
+```
+
+**4. String standardization**
+- Code columns (department_code, agency_code, object_code,
+  expense_class): stripped of whitespace and uppercased
+- Name columns (agency_name, department_name): stripped of
+  whitespace and converted to title case
+- Empty strings replaced with NULL across all string columns
+
+**5. Expense class mapping**
+The `UACS_EXP_CD` column contained numeric codes rather than
+the expected expense class labels. The mapping was determined
+by cross-referencing object codes against known UACS
+classifications:
+
+```python
+EXPENSE_CLASS_CODE_MAP = {
+    "1": "PS",    # Personnel Services
+    "2": "MOOE",  # Maintenance and Other Operating Expenses
+    "3": "FE",    # Financial Expenses
+    "6": "CO",    # Capital Outlay
+}
+```
+
+**6. Nullable integer foreign key casting**
+Pandas `.map()` on columns containing NaN values silently
+upcasts to `float64`, which PostgreSQL's INTEGER type rejects.
+Nullable integer dtype was applied to all FK columns:
+
+```python
+for col in ["object_code_id", "expense_class_id", "source_staging_id"]:
+    fact_df[col] = pd.array(
+        pd.to_numeric(fact_df[col], errors="coerce"),
+        dtype="Int64"
+    )
+```
+
+---
+
+## Data Analysis and Computations
+
+All analytics were computed by querying the dimensional model
+in PostgreSQL via SQLAlchemy. The following analytical
+computations were performed:
+
+**Total budget by agency**
+Aggregated `authorized_appropriation` from `fact_budget_allocation`
+grouped by `agency_id`, joined to `dim_agency` for agency names.
+Window function `RANK()` was applied over the aggregated totals
+to produce ranked output:
+
+```sql
+RANK() OVER (ORDER BY SUM(f.authorized_appropriation) DESC)
+```
+
+**Budget by expense class**
+Aggregated appropriations joined through `dim_object_code` to
+`dim_expense_class` to resolve the PS/MOOE/CO/FE classification.
+Percentage share was computed in Python after retrieval:
+
+```python
+df["pct_of_total"] = (df["total_appropriation"] / total * 100).round(2)
+```
+
+**Budget by department**
+Aggregated at the department level above the agency grain,
+with `COUNT(DISTINCT agency_id)` to show the number of agencies
+per department. Percentage share computed in Python.
+
+**Top programs by budget**
+Aggregated by `project_name` with parent agency context,
+filtered to exclude null program names, ranked by total
+appropriation descending.
+
+**KPI summary**
+Composite function drawing from the four analytics functions
+above to produce a single dictionary of headline figures:
+total appropriation, total agencies, total departments,
+total programs, largest agency, and dominant expense class.
+
+---
+
+## Visualizations
+
+The dashboard delivers five pages of interactive visualizations:
+
+**Overview page**
+Four KPI metric cards display the headline figures: total
+appropriation (PHP 4.51T), total agencies (375), total
+departments (37), and total programs (32,461). A donut chart
+shows the proportional breakdown of the budget by expense
+class using semantic colors.
+
+**Agencies page**
+A horizontal bar chart ranks agencies by total authorized
+appropriation. An interactive slider allows the viewer to
+control how many agencies are displayed (5 to 30). A data
+table below the chart shows the full ranked list with
+formatted peso values.
+
+**Departments page**
+A treemap visualizes the budget distribution across
+departments using a blue-to-amber color gradient encoding
+relative budget size — larger departments render in warmer
+tones. A horizontal bar chart provides a ranked alternative
+view. Both are accompanied by a data table with agency count
+and percentage share per department.
+
+**Expense Classes page**
+A donut chart and horizontal bar chart are displayed
+side-by-side. The donut uses semantic colors — blue for PS,
+teal for MOOE, amber for CO, red for FE — so the color
+itself communicates the expense type without requiring
+a legend lookup. A definitions block explains each
+expense class in plain language.
+
+**Programs page**
+A horizontal bar chart ranks the top N programs by
+authorized appropriation with parent agency context.
+An interactive slider controls the display count (5 to 25).
+Long program names are truncated in the chart and shown
+in full in the accompanying data table.
+
+---
+
+## Findings and Insights
+
+**Finding 1 — The national budget is dominated by operational spending**
+
+At 38.7% of total appropriations, Maintenance and Other
+Operating Expenses (MOOE) is the single largest expense
+class in the FY2021 budget — larger than even Personnel
+Services at 28.8%. This reflects the operational scale
+of the Philippine government's service delivery programs,
+particularly in health and education where day-to-day
+operational costs exceed payroll.
+
+**Finding 2 — Infrastructure and debt service together consume nearly a third of the budget**
+
+Capital Outlay (20.6%) and Financial Expenses (11.8%)
+combined account for 32.4% of total appropriations —
+PHP 1.46 trillion. Financial Expenses at PHP 532.7 billion
+reflects the Philippines' significant debt service
+obligations in 2021, a consequence of pandemic-era
+borrowing to finance emergency response programs.
+
+**Finding 3 — DPWH and DepEd are the two largest agency-level budget recipients**
+
+The Department of Public Works and Highways received
+PHP 695.67 billion — the largest single agency appropriation
+in FY2021 — reflecting the administration's infrastructure
+agenda. The Department of Education follows at PHP 594.11
+billion, consistent with the constitutional mandate to
+allocate the largest share of the national budget to education.
+
+**Finding 4 — Automatic appropriations account for a significant share of total spending**
+
+The Internal Revenue Allotment to local government units
+(PHP 695.49 billion) and Debt Interest Payments (PHP 531.54
+billion) appear among the top five agency-level appropriations
+as "Automatic Appropriations" — budget items mandated by law
+that do not require annual congressional deliberation. Together
+they represent PHP 1.23 trillion or approximately 27% of the
+total budget, limiting the discretionary portion available
+for program reallocation.
+
+**Finding 5 — The budget is distributed across 32,461 distinct programs**
+
+The granularity of the GAA at the sub-object and program
+level means that aggregated agency and department figures
+obscure significant internal variation. A single department
+like DPWH or DepEd contains hundreds of distinct program
+line items ranging from central office operations to
+regional infrastructure projects.
+
+---
+
+## Conclusion
+
+The FY2021 Philippine General Appropriations Act authorizes
+PHP 4.506 trillion in national government spending across
+375 agencies, 37 departments, and 32,461 programs. The
+largest expense category is MOOE at 38.7%, followed by
+Personnel Services at 28.8%, Capital Outlay at 20.6%,
+and Financial Expenses at 11.8%.
+
+The data confirms well-known fiscal priorities — DPWH and
+DepEd as the dominant agency-level recipients, significant
+automatic appropriations for IRA and debt service — while
+also surfacing the operational scale of government spending
+that is less visible in high-level budget summaries.
+
+The pipeline and dashboard built for this project demonstrate
+that meaningful budget analysis is achievable from publicly
+available data, given the right data engineering and
+analytical infrastructure. The schema is designed to extend
+to budget execution data when it becomes available, at which
+point utilization and disbursement rate analysis will be
+possible — enabling comparison of what was appropriated
+against what was actually spent.
+
+---
+
+## Recommendations
+
+Based on the findings and the analytical gaps identified
+during this project, the following are recommended as
+extensions and areas for further analysis:
+
+**1. Integrate budget execution data**
+The DBM publishes Budget Execution Reports (BERs) containing
+obligations and disbursements by agency. Integrating this
+data into the existing schema would enable utilization rate
+analysis — comparing authorized appropriations against actual
+spending — which is the most analytically meaningful question
+for accountability purposes.
+
+**2. Extend to multiple fiscal years**
+Adding FY2022 and FY2023 GAA data would enable year-over-year
+trend analysis, revealing how budget priorities shifted across
+the pandemic recovery period and into the new administration.
+The pipeline is designed to support multiple fiscal years
+with no schema changes required.
+
+**3. Add procurement contract data**
+The Philippine Government Electronic Procurement System
+(PhilGEPS) publishes awarded contract data that can be
+linked to budget line items by agency. This would enable
+analysis of how budget appropriations translate into actual
+procurement activity — a key dimension of public finance
+accountability.
+
+**4. Publish as an open analytical resource**
+The dashboard and underlying data model could be deployed
+as a publicly accessible resource for journalists,
+researchers, and civil society organizations working on
+budget transparency and accountability in the Philippines.
+
+---
+
+## References
+
+- Department of Budget and Management. (2021). *Republic Act
+  No. 11518 — General Appropriations Act FY2021, Volume I-A*.
+  Retrieved from https://www.dbm.gov.ph/index.php/budget-documents/2021
+
+- Congressional Policy and Budget Research Department. (2021).
+  *2021 Budget Briefer: Dimensions of the 2021 National
+  Government Budget*. Retrieved from
+  https://cpbrd.congress.gov.ph/wp-content/uploads/2023/09/BB2021-02_Dimensions_of_the_2021_NG_Budget.pdf
+
+- Department of Budget and Management. (2021). *Unified
+  Accounts Code Structure (UACS) Manual*. Retrieved from
+  https://www.dbm.gov.ph
+
+- Kimball, R., & Ross, M. (2013). *The Data Warehouse
+  Toolkit: The Definitive Guide to Dimensional Modeling*
+  (3rd ed.). John Wiley & Sons.
+
+- pandas Development Team. (2024). *pandas documentation —
+  Nullable integer data type*. Retrieved from
+  https://pandas.pydata.org/docs/user_guide/integer_na.html
+
+- PostgreSQL Global Development Group. (2023). *PostgreSQL 15
+  Release Notes — Changes to public schema privileges*.
+  Retrieved from https://www.postgresql.org/docs/15/release-15.html
