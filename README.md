@@ -4,7 +4,7 @@
 **Final Project Documentation**
 BSIT 2-2N — Group 4
 
-**Members**
+> An end-to-end data pipeline built on real Philippine government budget data from the FY2021 General Appropriations Act (GAA), published by the Department of Budget and Management (DBM). The pipeline ingests 498,342 raw budget line items, models a Kimball-style dimensional warehouse in PostgreSQL, and serves budget intelligence through an interactive multi-page Streamlit dashboard.
 
 | | |
 |---|---|
@@ -156,3 +156,9 @@ Navigate to `http://localhost:8501`
 ## License
 
 MIT License. See `LICENSE` for details.
+
+---
+
+*Data source: Department of Budget and Management, Republic of the Philippines.
+Republic Act No. 11518 — General Appropriations Act FY2021, Volume I-A.
+All financial figures in Philippine Peso (PHP).*
